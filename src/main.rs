@@ -2,10 +2,13 @@ use anyhow::{Context, Result};
 use byteorder::{LittleEndian, WriteBytesExt};
 use clap::Parser;
 use glam::{Vec2, Vec3};
+use gltf::json::{self, validation};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use rayon::prelude::*;
-use serde_json::json;
+use serde_json;
+use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::f32::consts::PI;
 use std::fs::File;
 use std::io::{self, Write};
@@ -418,187 +421,343 @@ impl Mesh {
         Ok(())
     }
     
-    /// Export mesh to GLB format (GL Transmission Format Binary)
+    /// Export mesh to GLB format (GL Transmission Format Binary) using the gltf crate
     fn export_glb<W: Write>(&self, writer: &mut W) -> io::Result<()> {
-        // Create buffers for vertex and index data
-        let mut vertex_buffer = Vec::new();
-        let mut normal_buffer = Vec::new();
-        let mut texcoord_buffer = Vec::new();
-        let mut index_buffer = Vec::new();
+        use gltf::json::validation::Checked::{Valid};
         
-        // Populate vertex buffers
-        for vertex in &self.vertices {
-            // Position (convert to right-handed coordinate system for glTF)
-            vertex_buffer.push(vertex.position.x);
-            vertex_buffer.push(vertex.position.y);
-            vertex_buffer.push(vertex.position.z);
+        // Create root object
+        let mut root = json::Root::default();
+        
+        // Asset info
+        root.asset = json::Asset {
+            generator: Some(String::from("ocean-generator")),
+            version: String::from("2.0"),
+            ..Default::default()
+        };
+        
+        // Create an empty scene
+        let scene = json::Scene {
+            nodes: vec![json::Index::new(0)],
+            extensions: Default::default(),
+            extras: Default::default(),
+            name: None,
+        };
+        
+        // Add scene to root
+        root.scenes.push(scene);
+        
+        // Set default scene
+        root.scene = Some(json::Index::new(0));
+        
+        // Create node
+        let node = json::Node {
+            camera: None,
+            children: None,
+            extensions: Default::default(),
+            extras: Default::default(),
+            matrix: None,
+            mesh: Some(json::Index::new(0)),
+            name: Some("ocean-mesh-node".to_string()),
+            rotation: None,
+            scale: None,
+            translation: None,
+            skin: None,
+            weights: None,
+        };
+        
+        // Add node to root
+        root.nodes = vec![node];
+        
+        // Create mesh
+        let mesh = {
+            let primitive = {
+                // Create buffers
+                let positions: Vec<[f32; 3]> = self.vertices.iter()
+                    .map(|v| [v.position.x, v.position.y, v.position.z])
+                    .collect();
+                
+                let normals: Vec<[f32; 3]> = self.vertices.iter()
+                    .map(|v| [v.normal.x, v.normal.y, v.normal.z])
+                    .collect();
+                
+                let tex_coords: Vec<[f32; 2]> = self.vertices.iter()
+                    .map(|v| [v.uv.x, v.uv.y])
+                    .collect();
+                
+                let indices: Vec<u32> = self.faces.iter()
+                    .flat_map(|f| vec![f.0 as u32, f.1 as u32, f.2 as u32])
+                    .collect();
+                
+                // Create buffer views
+                let buffer_views = &mut root.buffer_views;
+                let buffer_view_indices = buffer_views.len() as u32;
+                
+                // Calculate min/max values for position accessor
+                let mut min_pos = [f32::INFINITY, f32::INFINITY, f32::INFINITY];
+                let mut max_pos = [f32::NEG_INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+                
+                for pos in &positions {
+                    min_pos[0] = min_pos[0].min(pos[0]);
+                    min_pos[1] = min_pos[1].min(pos[1]);
+                    min_pos[2] = min_pos[2].min(pos[2]);
+                    
+                    max_pos[0] = max_pos[0].max(pos[0]);
+                    max_pos[1] = max_pos[1].max(pos[1]);
+                    max_pos[2] = max_pos[2].max(pos[2]);
+                }
+                
+                // Add buffer views
+                let buffer_view_index_positions = json::Index::new(buffer_view_indices);
+                buffer_views.push(json::buffer::View {
+                    buffer: json::Index::new(0),
+                    byte_length: validation::USize64::from(positions.len() * 12),
+                    byte_offset: None,
+                    byte_stride: None,
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    name: None,
+                    target: Some(Valid(json::buffer::Target::ArrayBuffer)),
+                });
+                
+                let buffer_view_index_normals = json::Index::new(buffer_view_indices + 1);
+                buffer_views.push(json::buffer::View {
+                    buffer: json::Index::new(0),
+                    byte_length: validation::USize64::from(normals.len() * 12),
+                    byte_offset: Some(validation::USize64::from(positions.len() * 12)),
+                    byte_stride: None,
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    name: None,
+                    target: Some(Valid(json::buffer::Target::ArrayBuffer)),
+                });
+                
+                let buffer_view_index_tex_coords = json::Index::new(buffer_view_indices + 2);
+                buffer_views.push(json::buffer::View {
+                    buffer: json::Index::new(0),
+                    byte_length: validation::USize64::from(tex_coords.len() * 8),
+                    byte_offset: Some(validation::USize64::from(positions.len() * 12 + normals.len() * 12)),
+                    byte_stride: None,
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    name: None,
+                    target: Some(Valid(json::buffer::Target::ArrayBuffer)),
+                });
+                
+                let buffer_view_index_indices = json::Index::new(buffer_view_indices + 3);
+                buffer_views.push(json::buffer::View {
+                    buffer: json::Index::new(0),
+                    byte_length: validation::USize64::from(indices.len() * 4),
+                    byte_offset: Some(validation::USize64::from(positions.len() * 12 + normals.len() * 12 + tex_coords.len() * 8)),
+                    byte_stride: None,
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    name: None,
+                    target: Some(Valid(json::buffer::Target::ElementArrayBuffer)),
+                });
+                
+                // Create accessors
+                let accessors = &mut root.accessors;
+                let accessor_index = accessors.len() as u32;
+                
+                let accessor_index_positions = json::Index::new(accessor_index);
+                accessors.push(json::Accessor {
+                    buffer_view: Some(buffer_view_index_positions),
+                    byte_offset: Some(validation::USize64(0)),
+                    count: validation::USize64::from(positions.len()),
+                    component_type: Valid(json::accessor::GenericComponentType(json::accessor::ComponentType::F32)),
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    min: Some(json::Value::from(min_pos)),
+                    max: Some(json::Value::from(max_pos)),
+                    name: None,
+                    normalized: false,
+                    sparse: None,
+                    type_: Valid(json::accessor::Type::Vec3),
+                });
+                
+                let accessor_index_normals = json::Index::new(accessor_index + 1);
+                accessors.push(json::Accessor {
+                    buffer_view: Some(buffer_view_index_normals),
+                    byte_offset: Some(validation::USize64(0)),
+                    count: validation::USize64::from(normals.len()),
+                    component_type: Valid(json::accessor::GenericComponentType(json::accessor::ComponentType::F32)),
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    min: None,
+                    max: None,
+                    name: None,
+                    normalized: false,
+                    sparse: None,
+                    type_: Valid(json::accessor::Type::Vec3),
+                });
+                
+                let accessor_index_tex_coords = json::Index::new(accessor_index + 2);
+                accessors.push(json::Accessor {
+                    buffer_view: Some(buffer_view_index_tex_coords),
+                    byte_offset: Some(validation::USize64(0)),
+                    count: validation::USize64::from(tex_coords.len()),
+                    component_type: Valid(json::accessor::GenericComponentType(json::accessor::ComponentType::F32)),
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    min: None,
+                    max: None,
+                    name: None,
+                    normalized: false,
+                    sparse: None,
+                    type_: Valid(json::accessor::Type::Vec2),
+                });
+                
+                let accessor_index_indices = json::Index::new(accessor_index + 3);
+                accessors.push(json::Accessor {
+                    buffer_view: Some(buffer_view_index_indices),
+                    byte_offset: Some(validation::USize64(0)),
+                    count: validation::USize64::from(indices.len()),
+                    component_type: Valid(json::accessor::GenericComponentType(json::accessor::ComponentType::U32)),
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    min: None,
+                    max: None,
+                    name: None,
+                    normalized: false,
+                    sparse: None,
+                    type_: Valid(json::accessor::Type::Scalar),
+                });
+                
+                // Create binary buffer
+                let mut buffer = Vec::new();
+                
+                // Add positions
+                for position in &positions {
+                    for component in position {
+                        let bytes = component.to_le_bytes();
+                        buffer.extend_from_slice(&bytes);
+                    }
+                }
+                
+                // Add normals
+                for normal in &normals {
+                    for component in normal {
+                        let bytes = component.to_le_bytes();
+                        buffer.extend_from_slice(&bytes);
+                    }
+                }
+                
+                // Add texture coordinates
+                for tex_coord in &tex_coords {
+                    for component in tex_coord {
+                        let bytes = component.to_le_bytes();
+                        buffer.extend_from_slice(&bytes);
+                    }
+                }
+                
+                // Add indices
+                for index in &indices {
+                    let bytes = index.to_le_bytes();
+                    buffer.extend_from_slice(&bytes);
+                }
+                
+                // Pad to multiple of 4 bytes
+                while buffer.len() % 4 != 0 {
+                    buffer.push(0);
+                }
+                
+                // Add buffer to root
+                root.buffers = vec![json::Buffer {
+                    byte_length: validation::USize64::from(buffer.len()),
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    name: None,
+                    uri: None,
+                }];
+                
+                // Create attributes map
+                let mut attributes = BTreeMap::new();
+                attributes.insert(Valid(json::mesh::Semantic::Positions), accessor_index_positions);
+                attributes.insert(Valid(json::mesh::Semantic::Normals), accessor_index_normals);
+                attributes.insert(Valid(json::mesh::Semantic::TexCoords(0)), accessor_index_tex_coords);
+                
+                // Create primitive
+                json::mesh::Primitive {
+                    attributes,
+                    extensions: Default::default(),
+                    extras: Default::default(),
+                    indices: Some(accessor_index_indices),
+                    material: None,
+                    mode: Valid(json::mesh::Mode::Triangles),
+                    targets: None,
+                }
+            };
             
-            // Normal
-            normal_buffer.push(vertex.normal.x);
-            normal_buffer.push(vertex.normal.y);
-            normal_buffer.push(vertex.normal.z);
+            // Create mesh
+            json::Mesh {
+                extensions: Default::default(),
+                extras: Default::default(),
+                name: Some(String::from("ocean-mesh")),
+                primitives: vec![primitive],
+                weights: None,
+            }
+        };
+        
+        // Add mesh to root
+        root.meshes = vec![mesh];
+        
+        // Serialize to JSON and build binary buffer
+        let json_string = serde_json::to_string(&root)?;
+        
+        // Create buffer
+        let binary_buffer = {
+            let mut buffer = Vec::new();
             
-            // Texture coordinates
-            texcoord_buffer.push(vertex.uv.x);
-            texcoord_buffer.push(vertex.uv.y);
-        }
+            // Add positions
+            for vertex in &self.vertices {
+                buffer.write_f32::<LittleEndian>(vertex.position.x)?;
+                buffer.write_f32::<LittleEndian>(vertex.position.y)?;
+                buffer.write_f32::<LittleEndian>(vertex.position.z)?;
+            }
+            
+            // Add normals
+            for vertex in &self.vertices {
+                buffer.write_f32::<LittleEndian>(vertex.normal.x)?;
+                buffer.write_f32::<LittleEndian>(vertex.normal.y)?;
+                buffer.write_f32::<LittleEndian>(vertex.normal.z)?;
+            }
+            
+            // Add texture coordinates
+            for vertex in &self.vertices {
+                buffer.write_f32::<LittleEndian>(vertex.uv.x)?;
+                buffer.write_f32::<LittleEndian>(vertex.uv.y)?;
+            }
+            
+            // Add indices
+            for face in &self.faces {
+                buffer.write_u32::<LittleEndian>(face.0 as u32)?;
+                buffer.write_u32::<LittleEndian>(face.1 as u32)?;
+                buffer.write_u32::<LittleEndian>(face.2 as u32)?;
+            }
+            
+            // Pad to multiple of 4 bytes
+            while buffer.len() % 4 != 0 {
+                buffer.push(0);
+            }
+            
+            buffer
+        };
         
-        // Populate index buffer
-        for face in &self.faces {
-            index_buffer.push(face.0 as u32);
-            index_buffer.push(face.1 as u32);
-            index_buffer.push(face.2 as u32);
-        }
-        
-        // Create binary buffer for vertex and index data
-        let mut buffer_data = Vec::new();
-        
-        // Add vertex positions
-        for value in &vertex_buffer {
-            buffer_data.write_f32::<LittleEndian>(*value)?;
-        }
-        
-        // Add normals
-        for value in &normal_buffer {
-            buffer_data.write_f32::<LittleEndian>(*value)?;
-        }
-        
-        // Add texture coordinates
-        for value in &texcoord_buffer {
-            buffer_data.write_f32::<LittleEndian>(*value)?;
-        }
-        
-        // Add indices
-        for value in &index_buffer {
-            buffer_data.write_u32::<LittleEndian>(*value)?;
-        }
-        
-        // Pad the buffer to 4-byte alignment
-        while buffer_data.len() % 4 != 0 {
-            buffer_data.push(0);
-        }
-        
-        // Create JSON for glTF
-        let vertex_count = self.vertices.len();
-        let face_count = self.faces.len();
-        let positions_byte_offset = 0;
-        let normals_byte_offset = vertex_count * 3 * std::mem::size_of::<f32>();
-        let texcoords_byte_offset = normals_byte_offset + vertex_count * 3 * std::mem::size_of::<f32>();
-        let indices_byte_offset = texcoords_byte_offset + vertex_count * 2 * std::mem::size_of::<f32>();
-        
-        let json = json!({
-            "asset": {
-                "version": "2.0",
-                "generator": "ocean-generator"
+        // Create GLB
+        let glb = gltf::binary::Glb {
+            header: gltf::binary::Header {
+                magic: *b"glTF",
+                version: 2,
+                length: 0, // Will be calculated automatically
             },
-            "scene": 0,
-            "scenes": [{
-                "nodes": [0]
-            }],
-            "nodes": [{
-                "mesh": 0
-            }],
-            "meshes": [{
-                "primitives": [{
-                    "attributes": {
-                        "POSITION": 0,
-                        "NORMAL": 1,
-                        "TEXCOORD_0": 2
-                    },
-                    "indices": 3,
-                    "mode": 4  // TRIANGLES
-                }]
-            }],
-            "buffers": [{
-                "byteLength": buffer_data.len()
-            }],
-            "bufferViews": [
-                {
-                    "buffer": 0,
-                    "byteOffset": positions_byte_offset,
-                    "byteLength": vertex_count * 3 * std::mem::size_of::<f32>(),
-                    "target": 34962  // ARRAY_BUFFER
-                },
-                {
-                    "buffer": 0,
-                    "byteOffset": normals_byte_offset,
-                    "byteLength": vertex_count * 3 * std::mem::size_of::<f32>(),
-                    "target": 34962  // ARRAY_BUFFER
-                },
-                {
-                    "buffer": 0,
-                    "byteOffset": texcoords_byte_offset,
-                    "byteLength": vertex_count * 2 * std::mem::size_of::<f32>(),
-                    "target": 34962  // ARRAY_BUFFER
-                },
-                {
-                    "buffer": 0,
-                    "byteOffset": indices_byte_offset,
-                    "byteLength": face_count * 3 * std::mem::size_of::<u32>(),
-                    "target": 34963  // ELEMENT_ARRAY_BUFFER
-                }
-            ],
-            "accessors": [
-                {
-                    "bufferView": 0,
-                    "componentType": 5126,  // FLOAT
-                    "count": vertex_count,
-                    "type": "VEC3",
-                    "max": [
-                        vertex_buffer.chunks(3).map(|v| v[0]).fold(f32::NEG_INFINITY, f32::max),
-                        vertex_buffer.chunks(3).map(|v| v[1]).fold(f32::NEG_INFINITY, f32::max),
-                        vertex_buffer.chunks(3).map(|v| v[2]).fold(f32::NEG_INFINITY, f32::max)
-                    ],
-                    "min": [
-                        vertex_buffer.chunks(3).map(|v| v[0]).fold(f32::INFINITY, f32::min),
-                        vertex_buffer.chunks(3).map(|v| v[1]).fold(f32::INFINITY, f32::min),
-                        vertex_buffer.chunks(3).map(|v| v[2]).fold(f32::INFINITY, f32::min)
-                    ]
-                },
-                {
-                    "bufferView": 1,
-                    "componentType": 5126,  // FLOAT
-                    "count": vertex_count,
-                    "type": "VEC3"
-                },
-                {
-                    "bufferView": 2,
-                    "componentType": 5126,  // FLOAT
-                    "count": vertex_count,
-                    "type": "VEC2"
-                },
-                {
-                    "bufferView": 3,
-                    "componentType": 5125,  // UNSIGNED_INT
-                    "count": face_count * 3,
-                    "type": "SCALAR"
-                }
-            ]
-        });
+            json: Cow::Owned(json_string.into_bytes()),
+            bin: Some(Cow::Owned(binary_buffer)),
+        };
         
-        // Convert JSON to string and pad to 4-byte alignment
-        let mut json_string = serde_json::to_string(&json)?;
-        while json_string.len() % 4 != 0 {
-            json_string.push(' ');
-        }
-        
-        // Write GLB header
-        let glb_length = 12 + 8 + json_string.len() + 8 + buffer_data.len();
-        writer.write_u32::<LittleEndian>(0x46546C67)?; // magic: glTF
-        writer.write_u32::<LittleEndian>(2)?; // version
-        writer.write_u32::<LittleEndian>(glb_length as u32)?; // length
-        
-        // Write JSON chunk
-        writer.write_u32::<LittleEndian>(json_string.len() as u32)?; // chunk length
-        writer.write_u32::<LittleEndian>(0x4E4F534A)?; // chunk type: JSON
-        writer.write_all(json_string.as_bytes())?;
-        
-        // Write binary chunk
-        writer.write_u32::<LittleEndian>(buffer_data.len() as u32)?; // chunk length
-        writer.write_u32::<LittleEndian>(0x004E4942)?; // chunk type: BIN
-        writer.write_all(&buffer_data)?;
-        
-        Ok(())
+        // Write GLB to output
+        glb.to_writer(writer).map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, e.to_string())
+        })
     }
 }
 
