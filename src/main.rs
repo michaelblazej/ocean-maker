@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
+use byteorder::{LittleEndian, WriteBytesExt};
 use clap::Parser;
 use glam::{Vec2, Vec3};
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 use rayon::prelude::*;
+use serde_json::json;
 use std::f32::consts::PI;
 use std::fs::File;
 use std::io::{self, Write};
@@ -37,7 +39,7 @@ struct Args {
     #[clap(short, long)]
     output: Option<PathBuf>,
 
-    /// Output format (obj, stl, or raw)
+    /// Output format (obj, stl, raw, or glb)
     #[clap(short, long, default_value = "obj")]
     format: String,
     
@@ -415,6 +417,189 @@ impl Mesh {
         
         Ok(())
     }
+    
+    /// Export mesh to GLB format (GL Transmission Format Binary)
+    fn export_glb<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        // Create buffers for vertex and index data
+        let mut vertex_buffer = Vec::new();
+        let mut normal_buffer = Vec::new();
+        let mut texcoord_buffer = Vec::new();
+        let mut index_buffer = Vec::new();
+        
+        // Populate vertex buffers
+        for vertex in &self.vertices {
+            // Position (convert to right-handed coordinate system for glTF)
+            vertex_buffer.push(vertex.position.x);
+            vertex_buffer.push(vertex.position.y);
+            vertex_buffer.push(vertex.position.z);
+            
+            // Normal
+            normal_buffer.push(vertex.normal.x);
+            normal_buffer.push(vertex.normal.y);
+            normal_buffer.push(vertex.normal.z);
+            
+            // Texture coordinates
+            texcoord_buffer.push(vertex.uv.x);
+            texcoord_buffer.push(vertex.uv.y);
+        }
+        
+        // Populate index buffer
+        for face in &self.faces {
+            index_buffer.push(face.0 as u32);
+            index_buffer.push(face.1 as u32);
+            index_buffer.push(face.2 as u32);
+        }
+        
+        // Create binary buffer for vertex and index data
+        let mut buffer_data = Vec::new();
+        
+        // Add vertex positions
+        for value in &vertex_buffer {
+            buffer_data.write_f32::<LittleEndian>(*value)?;
+        }
+        
+        // Add normals
+        for value in &normal_buffer {
+            buffer_data.write_f32::<LittleEndian>(*value)?;
+        }
+        
+        // Add texture coordinates
+        for value in &texcoord_buffer {
+            buffer_data.write_f32::<LittleEndian>(*value)?;
+        }
+        
+        // Add indices
+        for value in &index_buffer {
+            buffer_data.write_u32::<LittleEndian>(*value)?;
+        }
+        
+        // Pad the buffer to 4-byte alignment
+        while buffer_data.len() % 4 != 0 {
+            buffer_data.push(0);
+        }
+        
+        // Create JSON for glTF
+        let vertex_count = self.vertices.len();
+        let face_count = self.faces.len();
+        let positions_byte_offset = 0;
+        let normals_byte_offset = vertex_count * 3 * std::mem::size_of::<f32>();
+        let texcoords_byte_offset = normals_byte_offset + vertex_count * 3 * std::mem::size_of::<f32>();
+        let indices_byte_offset = texcoords_byte_offset + vertex_count * 2 * std::mem::size_of::<f32>();
+        
+        let json = json!({
+            "asset": {
+                "version": "2.0",
+                "generator": "ocean-generator"
+            },
+            "scene": 0,
+            "scenes": [{
+                "nodes": [0]
+            }],
+            "nodes": [{
+                "mesh": 0
+            }],
+            "meshes": [{
+                "primitives": [{
+                    "attributes": {
+                        "POSITION": 0,
+                        "NORMAL": 1,
+                        "TEXCOORD_0": 2
+                    },
+                    "indices": 3,
+                    "mode": 4  // TRIANGLES
+                }]
+            }],
+            "buffers": [{
+                "byteLength": buffer_data.len()
+            }],
+            "bufferViews": [
+                {
+                    "buffer": 0,
+                    "byteOffset": positions_byte_offset,
+                    "byteLength": vertex_count * 3 * std::mem::size_of::<f32>(),
+                    "target": 34962  // ARRAY_BUFFER
+                },
+                {
+                    "buffer": 0,
+                    "byteOffset": normals_byte_offset,
+                    "byteLength": vertex_count * 3 * std::mem::size_of::<f32>(),
+                    "target": 34962  // ARRAY_BUFFER
+                },
+                {
+                    "buffer": 0,
+                    "byteOffset": texcoords_byte_offset,
+                    "byteLength": vertex_count * 2 * std::mem::size_of::<f32>(),
+                    "target": 34962  // ARRAY_BUFFER
+                },
+                {
+                    "buffer": 0,
+                    "byteOffset": indices_byte_offset,
+                    "byteLength": face_count * 3 * std::mem::size_of::<u32>(),
+                    "target": 34963  // ELEMENT_ARRAY_BUFFER
+                }
+            ],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,  // FLOAT
+                    "count": vertex_count,
+                    "type": "VEC3",
+                    "max": [
+                        vertex_buffer.chunks(3).map(|v| v[0]).fold(f32::NEG_INFINITY, f32::max),
+                        vertex_buffer.chunks(3).map(|v| v[1]).fold(f32::NEG_INFINITY, f32::max),
+                        vertex_buffer.chunks(3).map(|v| v[2]).fold(f32::NEG_INFINITY, f32::max)
+                    ],
+                    "min": [
+                        vertex_buffer.chunks(3).map(|v| v[0]).fold(f32::INFINITY, f32::min),
+                        vertex_buffer.chunks(3).map(|v| v[1]).fold(f32::INFINITY, f32::min),
+                        vertex_buffer.chunks(3).map(|v| v[2]).fold(f32::INFINITY, f32::min)
+                    ]
+                },
+                {
+                    "bufferView": 1,
+                    "componentType": 5126,  // FLOAT
+                    "count": vertex_count,
+                    "type": "VEC3"
+                },
+                {
+                    "bufferView": 2,
+                    "componentType": 5126,  // FLOAT
+                    "count": vertex_count,
+                    "type": "VEC2"
+                },
+                {
+                    "bufferView": 3,
+                    "componentType": 5125,  // UNSIGNED_INT
+                    "count": face_count * 3,
+                    "type": "SCALAR"
+                }
+            ]
+        });
+        
+        // Convert JSON to string and pad to 4-byte alignment
+        let mut json_string = serde_json::to_string(&json)?;
+        while json_string.len() % 4 != 0 {
+            json_string.push(' ');
+        }
+        
+        // Write GLB header
+        let glb_length = 12 + 8 + json_string.len() + 8 + buffer_data.len();
+        writer.write_u32::<LittleEndian>(0x46546C67)?; // magic: glTF
+        writer.write_u32::<LittleEndian>(2)?; // version
+        writer.write_u32::<LittleEndian>(glb_length as u32)?; // length
+        
+        // Write JSON chunk
+        writer.write_u32::<LittleEndian>(json_string.len() as u32)?; // chunk length
+        writer.write_u32::<LittleEndian>(0x4E4F534A)?; // chunk type: JSON
+        writer.write_all(json_string.as_bytes())?;
+        
+        // Write binary chunk
+        writer.write_u32::<LittleEndian>(buffer_data.len() as u32)?; // chunk length
+        writer.write_u32::<LittleEndian>(0x004E4942)?; // chunk type: BIN
+        writer.write_all(&buffer_data)?;
+        
+        Ok(())
+    }
 }
 
 fn main() -> Result<()> {
@@ -503,9 +688,10 @@ fn export_mesh<W: Write>(mesh: &Mesh, format: &str, writer: &mut W) -> io::Resul
         "obj" => mesh.export_obj(writer),
         "stl" => mesh.export_stl(writer),
         "raw" => mesh.export_raw(writer),
+        "glb" => mesh.export_glb(writer),
         _ => {
             writeln!(writer, "Error: Unsupported format '{}'", format)?;
-            writeln!(writer, "Supported formats: obj, stl, raw")?;
+            writeln!(writer, "Supported formats: obj, stl, raw, glb")?;
             Err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported format"))
         }
     }

@@ -8,7 +8,7 @@ A command-line tool for generating tessellated 2D plane-like meshes with customi
 - Apply random noise/perturbation to create uneven surfaces
 - Simulate realistic ocean waves using trochoidal (Gerstner) wave equations
 - Control wave parameters like amplitude, wavelength, steepness, and direction
-- Export to multiple formats (OBJ, STL, RAW)
+- Export to multiple formats (OBJ, STL, GLB, RAW)
 - Output to file or stdout
 
 ## Installation
@@ -56,6 +56,12 @@ ocean-generator --format stl --output ocean.stl
 
 # Export to a custom raw format
 ocean-generator --format raw --output ocean.raw
+
+# Export to a GLB file
+ocean-generator --waves --amplitude 0.8 --wavelength 3.0 -f glb -o ocean_model.glb
+
+# Generate frames for animation in GLB format
+ocean-generator --waves --time 0.0 -f glb -o ocean_frame_0.glb
 ```
 
 ## Command-line Options
@@ -69,7 +75,7 @@ ocean-generator --format raw --output ocean.raw
 -y, --height-segments <SEGMENTS>   Number of vertices along height [default: 10]
 -n, --noise <NOISE>                Apply random perturbation to vertices (0.0 to 1.0) [default: 0.0]
 -o, --output <OUTPUT>              Output file (defaults to stdout if not specified)
--f, --format <FORMAT>              Output format (obj, stl, or raw) [default: obj]
+-f, --format <FORMAT>              Output format (obj, stl, glb, or raw) [default: obj]
 -h, --help                         Print help information
 -V, --version                      Print version information
 ```
@@ -91,6 +97,7 @@ ocean-generator --format raw --output ocean.raw
 
 - **OBJ**: Standard 3D model format compatible with most 3D software
 - **STL**: Common format for 3D printing and simple mesh representation
+- **GLB**: Binary GL Transmission Format (glTF), widely used for web and real-time 3D applications
 - **RAW**: Simple custom format with vertices and face indices
 
 ## Examples
