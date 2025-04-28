@@ -27,60 +27,136 @@ pub struct Mesh {
 impl Mesh {
     /// Create a new plane mesh with the given dimensions and resolution
     pub fn new_plane(width: f32, length: f32, width_segments: usize, length_segments: usize, noise: f32) -> Self {
-        let mut rng = rand::thread_rng();
-        let mut vertices = Vec::with_capacity((width_segments + 1) * (length_segments + 1));
-        let mut faces = Vec::with_capacity(width_segments * length_segments * 2);
+        let vertex_count = (width_segments + 1) * (length_segments + 1);
+        let face_count = width_segments * length_segments * 2;
         
-        // Create vertices
-        for y in 0..=length_segments {
-            let v = y as f32 / length_segments as f32;
-            
-            for x in 0..=width_segments {
-                let u = x as f32 / width_segments as f32;
+        // Create vertices in parallel
+        let vertices: Vec<Vertex> = (0..=length_segments)
+            .into_par_iter()
+            .flat_map(|y| {
+                let v = y as f32 / length_segments as f32;
+                let mut thread_rng = rand::thread_rng();
                 
-                // Calculate position
-                let mut position = Vec3::new(
-                    width * (u - 0.5),
-                    0.0,
-                    length * (v - 0.5),
-                );
-                
-                // Apply noise if requested
-                if noise > 0.0 {
-                    position.y = (rng.gen::<f32>() - 0.5) * noise;
-                }
-                
-                vertices.push(Vertex {
-                    position,
-                    normal: Vec3::new(0.0, 1.0, 0.0),
-                    uv: Vec2::new(u, v),
-                });
-            }
-        }
+                (0..=width_segments).map(move |x| {
+                    let u = x as f32 / width_segments as f32;
+                    
+                    // Calculate position
+                    let mut position = Vec3::new(
+                        width * (u - 0.5),
+                        0.0,
+                        length * (v - 0.5),
+                    );
+                    
+                    // Apply noise if requested
+                    if noise > 0.0 {
+                        position.y = (thread_rng.gen::<f32>() - 0.5) * noise;
+                    }
+                    
+                    Vertex {
+                        position,
+                        normal: Vec3::new(0.0, 1.0, 0.0),
+                        uv: Vec2::new(u, v),
+                    }
+                }).collect::<Vec<_>>()
+            })
+            .collect();
         
-        // Create faces (triangles)
-        for y in 0..length_segments {
-            for x in 0..width_segments {
-                let a = x + y * (width_segments + 1);
-                let b = x + (y + 1) * (width_segments + 1);
-                let c = (x + 1) + (y + 1) * (width_segments + 1);
-                let d = (x + 1) + y * (width_segments + 1);
-                
-                // First triangle
-                faces.push(Face(a, b, d));
-                // Second triangle
-                faces.push(Face(b, c, d));
-            }
-        }
+        // Create face indices
+        let faces: Vec<Face> = (0..length_segments)
+            .into_par_iter()
+            .flat_map(|y| {
+                (0..width_segments).flat_map(move |x| {
+                    let a = x + y * (width_segments + 1);
+                    let b = x + (y + 1) * (width_segments + 1);
+                    let c = (x + 1) + (y + 1) * (width_segments + 1);
+                    let d = (x + 1) + y * (width_segments + 1);
+                    
+                    // Return both triangles
+                    vec![
+                        Face(a, b, d),
+                        Face(b, c, d)
+                    ]
+                }).collect::<Vec<_>>()
+            })
+            .collect();
         
         // Recalculate normals if we applied noise
         let vertices = if noise > 0.0 {
-            Self::calculate_normals(vertices, &faces)
+            Self::calculate_normals_parallel(vertices, &faces)
         } else {
             vertices
         };
         
         Mesh { vertices, faces }
+    }
+    
+    /// Calculate vertex normals based on faces (parallel version)
+    pub fn calculate_normals_parallel(vertices: Vec<Vertex>, faces: &[Face]) -> Vec<Vertex> {
+        let face_normals: Vec<(usize, usize, usize, Vec3)> = faces.par_iter().map(|&Face(i1, i2, i3)| {
+            let v1 = vertices[i1].position;
+            let v2 = vertices[i2].position;
+            let v3 = vertices[i3].position;
+            
+            // Calculate face normal
+            let edge1 = v2 - v1;
+            let edge2 = v3 - v1;
+            let normal = edge1.cross(edge2).normalize();
+            
+            (i1, i2, i3, normal)
+        }).collect();
+        
+        // Create a thread-safe accumulator for normals
+        let normal_accumulators = std::sync::Mutex::new(vec![Vec3::ZERO; vertices.len()]);
+        
+        // Accumulate normals in parallel
+        face_normals.par_iter().for_each(|&(i1, i2, i3, normal)| {
+            let mut accumulators = normal_accumulators.lock().unwrap();
+            accumulators[i1] += normal;
+            accumulators[i2] += normal;
+            accumulators[i3] += normal;
+        });
+        
+        // Apply the accumulated normals to create the final vertices
+        let normal_accumulators = normal_accumulators.into_inner().unwrap();
+        
+        vertices.into_iter().enumerate().map(|(i, mut vertex)| {
+            vertex.normal = normal_accumulators[i].normalize();
+            vertex
+        }).collect()
+    }
+    
+    /// Recalculate normals for the existing mesh (parallel version)
+    pub fn recalculate_normals(&mut self) {
+        let face_normals: Vec<(usize, usize, usize, Vec3)> = self.faces.par_iter().map(|&Face(i1, i2, i3)| {
+            let v1 = self.vertices[i1].position;
+            let v2 = self.vertices[i2].position;
+            let v3 = self.vertices[i3].position;
+            
+            // Calculate face normal
+            let edge1 = v2 - v1;
+            let edge2 = v3 - v1;
+            let normal = edge1.cross(edge2).normalize();
+            
+            (i1, i2, i3, normal)
+        }).collect();
+        
+        // Create a thread-safe accumulator for normals
+        let normal_accumulators = std::sync::Mutex::new(vec![Vec3::ZERO; self.vertices.len()]);
+        
+        // Accumulate normals in parallel
+        face_normals.par_iter().for_each(|&(i1, i2, i3, normal)| {
+            let mut accumulators = normal_accumulators.lock().unwrap();
+            accumulators[i1] += normal;
+            accumulators[i2] += normal;
+            accumulators[i3] += normal;
+        });
+        
+        // Apply the accumulated normals
+        let normal_accumulators = normal_accumulators.into_inner().unwrap();
+        
+        self.vertices.par_iter_mut().enumerate().for_each(|(i, vertex)| {
+            vertex.normal = normal_accumulators[i].normalize();
+        });
     }
     
     /// Apply trochoidal wave simulation to the mesh
@@ -129,63 +205,5 @@ impl Mesh {
             vertex.position = final_pos;
             vertex.normal = normal.normalize();
         });
-    }
-    
-    /// Calculate vertex normals based on faces
-    pub fn calculate_normals(mut vertices: Vec<Vertex>, faces: &[Face]) -> Vec<Vertex> {
-        // Create a map to store accumulated normals
-        let mut normal_map: HashMap<usize, Vec3> = HashMap::new();
-        
-        // Calculate face normals and accumulate them for vertices
-        for &Face(i1, i2, i3) in faces {
-            let v1 = vertices[i1].position;
-            let v2 = vertices[i2].position;
-            let v3 = vertices[i3].position;
-            
-            // Calculate face normal
-            let edge1 = v2 - v1;
-            let edge2 = v3 - v1;
-            let normal = edge1.cross(edge2).normalize();
-            
-            // Accumulate normals for each vertex
-            *normal_map.entry(i1).or_insert(Vec3::ZERO) += normal;
-            *normal_map.entry(i2).or_insert(Vec3::ZERO) += normal;
-            *normal_map.entry(i3).or_insert(Vec3::ZERO) += normal;
-        }
-        
-        // Apply the calculated normals
-        for (i, normal) in normal_map {
-            vertices[i].normal = normal.normalize();
-        }
-        
-        vertices
-    }
-    
-    /// Recalculate normals for the existing mesh
-    pub fn recalculate_normals(&mut self) {
-        // Create a map to store accumulated normals
-        let mut normal_map: HashMap<usize, Vec3> = HashMap::new();
-        
-        // Calculate face normals and accumulate them for vertices
-        for &Face(i1, i2, i3) in &self.faces {
-            let v1 = self.vertices[i1].position;
-            let v2 = self.vertices[i2].position;
-            let v3 = self.vertices[i3].position;
-            
-            // Calculate face normal
-            let edge1 = v2 - v1;
-            let edge2 = v3 - v1;
-            let normal = edge1.cross(edge2).normalize();
-            
-            // Accumulate normals for each vertex
-            *normal_map.entry(i1).or_insert(Vec3::ZERO) += normal;
-            *normal_map.entry(i2).or_insert(Vec3::ZERO) += normal;
-            *normal_map.entry(i3).or_insert(Vec3::ZERO) += normal;
-        }
-        
-        // Apply the calculated normals
-        for (i, normal) in normal_map {
-            self.vertices[i].normal = normal.normalize();
-        }
     }
 }

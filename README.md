@@ -116,9 +116,9 @@ ocean-generator --waves --time 0.0 -f glb -o ocean_frame_0.glb
 
 ```
 -w, --width <WIDTH>                Width of the mesh [default: 10.0]
--H, --height <HEIGHT>              Height of the mesh [default: 10.0]
+-l, --length <LENGTH>              Length of the mesh [default: 10.0]
 -x, --width-segments <SEGMENTS>    Number of vertices along width [default: 10]
--y, --height-segments <SEGMENTS>   Number of vertices along height [default: 10]
+-y, --length-segments <SEGMENTS>   Number of vertices along length [default: 10]
 -n, --noise <NOISE>                Apply random perturbation to vertices (0.0 to 1.0) [default: 0.0]
 -o, --output <OUTPUT>              Output file (defaults to stdout if not specified)
 -f, --format <FORMAT>              Output format (obj, stl, glb, or raw) [default: obj]
