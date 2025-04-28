@@ -43,18 +43,18 @@ impl Mesh {
                     // Calculate position
                     let mut position = Vec3::new(
                         width * (u - 0.5),
-                        0.0,
                         length * (v - 0.5),
+                        0.0,
                     );
                     
                     // Apply noise if requested
                     if noise > 0.0 {
-                        position.y = (thread_rng.gen::<f32>() - 0.5) * noise;
+                        position.z = (thread_rng.gen::<f32>() - 0.5) * noise;
                     }
                     
                     Vertex {
                         position,
-                        normal: Vec3::new(0.0, 1.0, 0.0),
+                        normal: Vec3::new(0.0, 0.0, 1.0),
                         uv: Vec2::new(u, v),
                     }
                 }).collect::<Vec<_>>()

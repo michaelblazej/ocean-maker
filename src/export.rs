@@ -45,6 +45,9 @@ impl Mesh {
         writeln!(writer, "# Vertices: {}", self.vertices.len())?;
         writeln!(writer, "# Faces: {}", self.faces.len())?;
         
+        // Write material library reference
+        writeln!(writer, "mtllib ocean_material.mtl")?;
+        
         // Write vertices
         for vertex in &self.vertices {
             writeln!(
@@ -67,6 +70,9 @@ impl Mesh {
                 vertex.normal.x, vertex.normal.y, vertex.normal.z
             )?;
         }
+        
+        // Apply material to all faces
+        writeln!(writer, "usemtl ocean_material")?;
         
         // Write faces (OBJ indices are 1-based)
         for face in &self.faces {
