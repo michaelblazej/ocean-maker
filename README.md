@@ -23,6 +23,52 @@ The binary will be available at `target/release/ocean-generator`.
 
 ## Usage
 
+### As a Library
+
+Ocean Generator can be used as a library in your Rust projects:
+
+```toml
+# In your Cargo.toml
+[dependencies]
+ocean-generator = { git = "https://your-repo-url.git" }
+```
+
+Then in your code:
+
+```rust
+use ocean_generator::prelude::*;
+use ocean_generator::wave;
+
+fn main() {
+    // Create a mesh
+    let mut mesh = Mesh::new_plane(
+        10.0,  // width
+        10.0,  // length
+        20,    // width segments
+        20,    // length segments
+        0.0,   // noise
+    );
+    
+    // Add wave simulation
+    let wave_params = wave::generate_wave_params(
+        3,       // number of wave components
+        0.5,     // amplitude
+        2.0,     // wavelength
+        0.5,     // steepness
+        45.0,    // direction in degrees
+        42,      // random seed
+    );
+    
+    mesh.apply_waves(&wave_params, 0.0);  // Apply waves at time=0.0
+    
+    // Export the mesh
+    let format = ExportFormat::Obj;
+    let mut file = std::fs::File::create("ocean.obj").unwrap();
+    export_mesh(&mesh, format, &mut file).unwrap();
+}
+
+### As a CLI Tool
+
 ```bash
 # Generate a basic 10x10 mesh with 10 segments in each direction (default)
 ocean-generator

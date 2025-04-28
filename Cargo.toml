@@ -2,6 +2,17 @@
 name = "ocean-generator"
 version = "0.1.0"
 edition = "2021"
+description = "Library and CLI tool for generating ocean mesh surfaces with wave simulation"
+authors = ["Ocean Generator Authors"]
+license = "MIT"
+
+[lib]
+name = "ocean_generator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ocean-generator"
+path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.4", features = ["derive"] }
