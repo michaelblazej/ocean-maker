@@ -22,17 +22,17 @@ struct Args {
     #[clap(short, long, default_value = "10.0")]
     width: f32,
 
-    /// Height of the mesh
-    #[clap(short = 'H', long, default_value = "10.0")]
-    height: f32,
+    /// length of the mesh
+    #[clap(short, long, default_value = "10.0")]
+    length: f32,
 
     /// Number of vertices along width
     #[clap(short = 'x', long, default_value = "10")]
     width_segments: usize,
 
-    /// Number of vertices along height
+    /// Number of vertices along length
     #[clap(short = 'y', long, default_value = "10")]
-    height_segments: usize,
+    length_segments: usize,
 
     /// Apply random perturbation to vertices (0.0 to 1.0)
     #[clap(short, long, default_value = "0.0")]
@@ -54,7 +54,7 @@ struct Args {
     #[clap(long, default_value = "3")]
     wave_count: usize,
     
-    /// Wave amplitude (height of waves)
+    /// Wave amplitude (length of waves)
     #[clap(long, default_value = "0.5")]
     amplitude: f32,
     
@@ -109,14 +109,14 @@ struct Mesh {
 
 impl Mesh {
     /// Create a new plane mesh with the given dimensions and resolution
-    fn new_plane(width: f32, height: f32, width_segments: usize, height_segments: usize, noise: f32) -> Self {
+    fn new_plane(width: f32, length: f32, width_segments: usize, length_segments: usize, noise: f32) -> Self {
         let mut rng = rand::thread_rng();
-        let mut vertices = Vec::with_capacity((width_segments + 1) * (height_segments + 1));
-        let mut faces = Vec::with_capacity(width_segments * height_segments * 2);
+        let mut vertices = Vec::with_capacity((width_segments + 1) * (length_segments + 1));
+        let mut faces = Vec::with_capacity(width_segments * length_segments * 2);
         
         // Create vertices
-        for y in 0..=height_segments {
-            let v = y as f32 / height_segments as f32;
+        for y in 0..=length_segments {
+            let v = y as f32 / length_segments as f32;
             
             for x in 0..=width_segments {
                 let u = x as f32 / width_segments as f32;
@@ -125,7 +125,7 @@ impl Mesh {
                 let mut position = Vec3::new(
                     width * (u - 0.5),
                     0.0,
-                    height * (v - 0.5),
+                    length * (v - 0.5),
                 );
                 
                 // Apply noise if requested
@@ -142,7 +142,7 @@ impl Mesh {
         }
         
         // Create faces (triangles)
-        for y in 0..height_segments {
+        for y in 0..length_segments {
             for x in 0..width_segments {
                 let a = x + y * (width_segments + 1);
                 let b = x + (y + 1) * (width_segments + 1);
@@ -765,12 +765,12 @@ fn main() -> Result<()> {
     let args = Args::parse();
     
     // Validate parameters
-    if args.width <= 0.0 || args.height <= 0.0 {
-        anyhow::bail!("Width and height must be positive");
+    if args.width <= 0.0 || args.length <= 0.0 {
+        anyhow::bail!("Width and length must be positive");
     }
     
-    if args.width_segments == 0 || args.height_segments == 0 {
-        anyhow::bail!("Width and height segments must be at least 1");
+    if args.width_segments == 0 || args.length_segments == 0 {
+        anyhow::bail!("Width and length segments must be at least 1");
     }
     
     if args.noise < 0.0 || args.noise > 1.0 {
@@ -798,9 +798,9 @@ fn main() -> Result<()> {
     // Generate the base mesh
     let mut mesh = Mesh::new_plane(
         args.width,
-        args.height,
+        args.length,
         args.width_segments,
-        args.height_segments,
+        args.length_segments,
         args.noise,
     );
     
