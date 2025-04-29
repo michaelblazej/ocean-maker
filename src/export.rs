@@ -1,6 +1,5 @@
 use std::io::{self, Write};
 use byteorder::{LittleEndian, WriteBytesExt};
-use gltf::json;
 use std::str::FromStr;
 
 use crate::mesh::Mesh;
@@ -256,10 +255,21 @@ fn json_export_glb(vertices: &[crate::mesh::Vertex], faces: &[crate::mesh::Face]
                             "TEXCOORD_0": 2
                         },
                         "indices": 3,
+                        "material": 0,
                         "mode": 4 // TRIANGLES
                     }
                 ],
                 "name": "OceanMesh"
+            }
+        ],
+        "materials": [
+            {
+                "name": "ocean_material",
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.0, 0.5, 0.8, 1.0],  // Blue color
+                    "metallicFactor": 0.0,
+                    "roughnessFactor": 1.0
+                }
             }
         ],
         "accessors": [
