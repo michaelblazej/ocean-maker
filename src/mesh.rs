@@ -1,6 +1,5 @@
 use glam::{Vec2, Vec3};
 use rand::Rng;
-use std::collections::HashMap;
 use rayon::prelude::*;
 
 use crate::wave::WaveParams;
@@ -27,8 +26,8 @@ pub struct Mesh {
 impl Mesh {
     /// Create a new plane mesh with the given dimensions and resolution
     pub fn new_plane(width: f32, length: f32, width_segments: usize, length_segments: usize, noise: f32) -> Self {
-        let vertex_count = (width_segments + 1) * (length_segments + 1);
-        let face_count = width_segments * length_segments * 2;
+        let _vertex_count = (width_segments + 1) * (length_segments + 1);
+        let _face_count = width_segments * length_segments * 2;
         
         // Create vertices in parallel
         let vertices: Vec<Vertex> = (0..=length_segments)
@@ -166,11 +165,11 @@ impl Mesh {
             let pos = vertex.position;
             // Start with the original position for accumulation
             let mut final_pos = pos;
-            let mut normal = Vec3::new(0.0, 1.0, 0.0);
+            let mut normal = Vec3::new(0.0, 0.0, 1.0);
             
             for wave in wave_params {
                 // Project position onto wave direction
-                let pos_2d = Vec2::new(pos.x, pos.z);
+                let pos_2d = Vec2::new(pos.x, pos.y);
                 let proj = wave.direction.dot(pos_2d);
                 
                 // Calculate phase
@@ -181,10 +180,10 @@ impl Mesh {
                 
                 // Horizontal displacement
                 let dx = steepness * wave.amplitude * wave.direction.x * f32::cos(phase);
-                let dz = steepness * wave.amplitude * wave.direction.y * f32::cos(phase);
+                let dy = steepness * wave.amplitude * wave.direction.y * f32::cos(phase);
                 
                 // Vertical displacement
-                let dy = wave.amplitude * f32::sin(phase);
+                let dz = wave.amplitude * f32::sin(phase);
                 
                 // Accumulate displacement
                 final_pos.x += dx;
@@ -193,8 +192,8 @@ impl Mesh {
                 
                 // Accumulate normal contribution
                 let nx = -wave.direction.x * wave.amplitude * f32::cos(phase);
-                let nz = -wave.direction.y * wave.amplitude * f32::cos(phase);
-                let ny = steepness * wave.amplitude * f32::sin(phase);
+                let ny = -wave.direction.y * wave.amplitude * f32::cos(phase);
+                let nz = steepness * wave.amplitude * f32::sin(phase);
                 
                 normal.x -= nx;
                 normal.y += ny;
