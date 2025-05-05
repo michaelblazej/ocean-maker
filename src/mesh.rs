@@ -180,7 +180,7 @@ impl Mesh {
                 
                 // Horizontal displacement
                 let dx = steepness * wave.amplitude * wave.direction.x * f32::cos(phase);
-                let dy = steepness * wave.amplitude * wave.direction.y * f32::cos(phase);
+                let dy = steepness * wave.amplitude * wave.direction.y * f32::sin(phase);
                 
                 // Vertical displacement
                 let dz = wave.amplitude * f32::sin(phase);

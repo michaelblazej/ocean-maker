@@ -26,10 +26,7 @@ pub fn generate_wave_params(
     let mut waves = Vec::with_capacity(count);
     
     // Convert direction from degrees to radians
-    let base_direction_rad = base_direction_degrees * PI / 180.0;
-    
-    // Base direction vector (not directly used, but kept for reference/future use)
-    let _base_dir = Vec2::new(f32::cos(base_direction_rad), f32::sin(base_direction_rad));
+    let direction_angle = base_direction_degrees * PI / 180.0;
     
     for i in 0..count {
         // Calculate wavelength - shorter for higher frequency components
@@ -40,9 +37,6 @@ pub fn generate_wave_params(
         let amplitude_factor = f32::exp(-0.3 * i as f32);
         let amplitude = base_amplitude * amplitude_factor;
         
-        // Slightly randomize direction
-        let angle_offset = rng.gen_range(-0.3..0.3);
-        let direction_angle = base_direction_rad + angle_offset;
         let direction = Vec2::new(f32::cos(direction_angle), f32::sin(direction_angle));
         
         // Randomize steepness a bit
