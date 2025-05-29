@@ -109,19 +109,60 @@ impl Mesh {
             Some(water_material)
         );
         
-        // Create a node for the mesh
-        let node_index = builder.add_node(
-            Some("OceanNode".to_string()),
-            Some(mesh_index),
+        // Create a 5x5 grid of ocean nodes
+        let mut grid_nodes = Vec::new();
+        
+        // Calculate bounds for placement
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+        
+        for vertex in &self.vertices {
+            min_x = min_x.min(vertex.position.x);
+            min_y = min_y.min(vertex.position.y);
+            max_x = max_x.max(vertex.position.x);
+            max_y = max_y.max(vertex.position.y);
+        }
+        
+        let width = max_x - min_x;
+        let depth = max_y - min_y;
+        
+        // Create a 5x5 grid of nodes
+        for row in 0..5 {
+            for col in 0..5 {
+                // Calculate position offset for this grid cell
+                let x_offset = col as f32 * width * 0.9;  // Slight overlap
+                let y_offset = row as f32 * depth * 0.9;  // Slight overlap
+                
+                // Create node for this grid position
+                let node_name = format!("OceanNode_{}_{}", row, col);
+                let node_index = builder.add_node(
+                    Some(node_name),
+                    Some(mesh_index),
+                    Some([x_offset, y_offset, 0.0]),  // Position at grid coordinates
+                    None,  // No rotation
+                    None   // No scale
+                );
+                
+                grid_nodes.push(node_index);
+            }
+        }
+        
+        // Create a parent node for the grid
+        let grid_parent = builder.add_node_with_children(
+            Some("OceanGrid".to_string()),
+            None,  // No mesh at this level
             None,  // No translation
             None,  // No rotation
-            None   // No scale
+            None,  // No scale
+            grid_nodes
         );
         
-        // Create a scene with the node
+        // Create a scene with the grid parent node
         let scene_index = builder.add_scene(
             Some("OceanScene".to_string()),
-            Some(vec![node_index])
+            Some(vec![grid_parent])
         );
         
         // Set as default scene
