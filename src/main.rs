@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 // Import from our library
 use ocean_generator::prelude::*;
+use ocean_generator::{export_mesh, export_mesh_tiled};
 use ocean_generator::wave;
 
 /// A program to generate tesselated 2D plane-like meshes with trochoidal wave simulation
@@ -71,6 +72,14 @@ struct Args {
     /// Random seed for wave generation
     #[clap(long, default_value = "42")]
     seed: u64,
+    
+    /// Number of tiles in X direction for GLB export
+    #[clap(long, default_value = "1")]
+    tile_count_x: usize,
+    
+    /// Number of tiles in Y direction for GLB export
+    #[clap(long, default_value = "1")]
+    tile_count_y: usize,
 }
 
 fn main() -> Result<()> {
@@ -110,15 +119,22 @@ fn main() -> Result<()> {
             let mut file = File::create(&path)
                 .with_context(|| format!("Failed to create output file: {}", path.display()))?;
             
-            export_mesh(&mesh, format, &mut file)
-                .with_context(|| format!("Failed to write to file: {}", path.display()))?;
-                
-            println!("Mesh exported to: {}", path.display());
+            // Use tiled export if GLB format and tile counts are greater than 1
+            if args.format.to_lowercase() == "glb" && (args.tile_count_x > 1 || args.tile_count_y > 1) {
+                export_mesh_tiled(&mesh, format, &mut file, args.tile_count_x, args.tile_count_y)
+                    .with_context(|| format!("Failed to write to file: {}", path.display()))?;
+                println!("Mesh exported to: {} with {}x{} tiles", path.display(), args.tile_count_x, args.tile_count_y);
+            } else {
+                export_mesh(&mesh, format, &mut file)
+                    .with_context(|| format!("Failed to write to file: {}", path.display()))?;
+                println!("Mesh exported to: {}", path.display());
+            }
         },
         None => {
             let stdout = io::stdout();
             let mut handle = stdout.lock();
             
+            // For stdout, always use simple export
             export_mesh(&mesh, format, &mut handle)
                 .context("Failed to write to stdout")?;
         }

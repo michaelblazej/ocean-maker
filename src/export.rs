@@ -24,7 +24,13 @@ impl FromStr for ExportFormat {
 /// Export mesh to a file with the specified format.
 pub fn export_mesh<W: Write>(mesh: &Mesh, _format: ExportFormat, writer: &mut W) -> io::Result<()> {
     // Only GLB format is supported now
-    mesh.export_glb(writer)
+    mesh.export_glb(writer, 1, 1) // Default to 1x1 grid
+}
+
+/// Export mesh to a file with the specified format with tiling options.
+pub fn export_mesh_tiled<W: Write>(mesh: &Mesh, _format: ExportFormat, writer: &mut W, tile_count_x: usize, tile_count_y: usize) -> io::Result<()> {
+    // Only GLB format is supported now
+    mesh.export_glb(writer, tile_count_x, tile_count_y)
 }
 
 impl Mesh {
@@ -34,11 +40,27 @@ impl Mesh {
     /// * `path` - The path to save the GLB file to
     pub fn save_glb<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
         let mut file = File::create(path)?;
-        self.export_glb(&mut file)
+        self.export_glb(&mut file, 1, 1) // Default to 1x1 grid
+    }
+    
+    /// Export the mesh to a GLB file with tiling options
+    /// 
+    /// # Arguments
+    /// * `path` - The path to save the GLB file to
+    /// * `tile_count_x` - Number of tiles in X direction
+    /// * `tile_count_y` - Number of tiles in Y direction
+    pub fn save_glb_tiled<P: AsRef<Path>>(&self, path: P, tile_count_x: usize, tile_count_y: usize) -> io::Result<()> {
+        let mut file = File::create(path)?;
+        self.export_glb(&mut file, tile_count_x, tile_count_y)
     }
     
     /// Export the mesh to a GLB file, writing to the provided writer
-    pub fn export_glb<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+    /// 
+    /// # Arguments
+    /// * `writer` - The writer to write the GLB data to
+    /// * `tile_count_x` - Number of tiles in X direction
+    /// * `tile_count_y` - Number of tiles in Y direction
+    pub fn export_glb<W: Write>(&self, writer: &mut W, tile_count_x: usize, tile_count_y: usize) -> io::Result<()> {
         // Create temporary directory for export
         let temp_dir = tempdir()?;
         let temp_file_path = temp_dir.path().join("ocean.glb");
@@ -109,7 +131,7 @@ impl Mesh {
             Some(water_material)
         );
         
-        // Create a 5x5 grid of ocean nodes
+        // Create a grid of ocean nodes based on tile counts
         let mut grid_nodes = Vec::new();
         
         // Calculate bounds for placement
@@ -128,12 +150,20 @@ impl Mesh {
         let width = max_x - min_x;
         let depth = max_y - min_y;
         
-        // Create a 5x5 grid of nodes
-        for row in 0..5 {
-            for col in 0..5 {
-                // Calculate position offset for this grid cell
-                let x_offset = col as f32 * width * 0.9;  // Slight overlap
-                let y_offset = row as f32 * depth * 0.9;  // Slight overlap
+        // Calculate total grid dimensions
+        let grid_width = width * tile_count_x as f32 * 0.9; // Account for 10% overlap
+        let grid_height = depth * tile_count_y as f32 * 0.9; // Account for 10% overlap
+        
+        // Calculate origin offset to center the entire grid
+        let origin_x_offset = -grid_width / 2.0 + width * 0.45; // Half grid with half-cell adjustment
+        let origin_y_offset = -grid_height / 2.0 + depth * 0.45; // Half grid with half-cell adjustment
+
+        // Create grid of nodes based on provided tile counts
+        for row in 0..tile_count_y {
+            for col in 0..tile_count_x {
+                // Calculate position offset for this grid cell with centering
+                let x_offset = origin_x_offset + col as f32 * width * 0.9;  // Slight overlap
+                let y_offset = origin_y_offset + row as f32 * depth * 0.9;  // Slight overlap
                 
                 // Create node for this grid position
                 let node_name = format!("OceanNode_{}_{}", row, col);
