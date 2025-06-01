@@ -106,6 +106,7 @@ fn main() -> Result<()> {
 }
 
 /// Create a mesh from the displacement field
+/// Note: Ocean surface is defined in the xy-plane, with z-axis as height
 fn create_mesh(
     width: f32,
     length: f32,
@@ -135,8 +136,8 @@ fn create_mesh(
     let mut max_height: f32 = f32::MIN;
 
     // Generate vertices
-    for iz in 0..=grid_z {
-        let z = iz as f32 * segment_length - half_length;
+    for iy in 0..=grid_z { // Using grid_z for y-segments since we're repurposing the parameters
+        let y = iy as f32 * segment_length - half_length;
         
         for ix in 0..=grid_x {
             let x = ix as f32 * segment_width - half_width;
@@ -144,55 +145,55 @@ fn create_mesh(
             // Sample displacement field at this point
             // Map from model coordinates to displacement field coordinates
             let sample_x = ((ix as f32 / grid_x as f32) * (resolution - 1) as f32).round() as usize;
-            let sample_z = ((iz as f32 / grid_z as f32) * (resolution - 1) as f32).round() as usize;
+            let sample_y = ((iy as f32 / grid_z as f32) * (resolution - 1) as f32).round() as usize;
             let sample_x = sample_x.min(resolution - 1);
-            let sample_z = sample_z.min(resolution - 1);
+            let sample_y = sample_y.min(resolution - 1);
             
             // Apply displacements from the wave field
-            let dx = displacement.displacement_x[sample_x][sample_z];
-            let dz = displacement.displacement_y[sample_x][sample_z];
+            let dx = displacement.displacement_x[sample_x][sample_y];
+            let dy = displacement.displacement_y[sample_x][sample_y];
             
             // Get the wave height from displacement field
-            let vertex_y = displacement.height[sample_x][sample_z];
+            let vertex_z = displacement.height[sample_x][sample_y];
             
             // Add position with displacement
-            positions.push(mesh_tools::compat::point3::new(x + dx, vertex_y, z + dz));
+            positions.push(mesh_tools::compat::point3::new(x + dx, y + dy, vertex_z));
             
             // Track min/max height
-            min_height = min_height.min(vertex_y);
-            max_height = max_height.max(vertex_y);
+            min_height = min_height.min(vertex_z);
+            max_height = max_height.max(vertex_z);
             
             // Add normal
-            let nx = displacement.normal_x[sample_x][sample_z];
-            let ny = displacement.normal_z[sample_x][sample_z];
-            let nz = displacement.normal_y[sample_x][sample_z];
+            // Remap normals for xy-plane with z as up direction
+            let nx = displacement.normal_x[sample_x][sample_y];
+            let ny = displacement.normal_y[sample_x][sample_y];
+            let nz = displacement.normal_z[sample_x][sample_y];
             normals.push(mesh_tools::compat::vector3::new(nx, ny, nz));
             
             // Add texture coordinate
             uvs.push(mesh_tools::compat::vector2::new(
                 ix as f32 / grid_x as f32,
-                iz as f32 / grid_z as f32,
+                iy as f32 / grid_z as f32,
             ));
         }
     }
 
-    // Generate indices
-    for iz in 0..grid_z {
+    // Generate indices for triangles
+    for iy in 0..grid_z {
         for ix in 0..grid_x {
-            let a = ix + (iz * (grid_x + 1));
-            let b = ix + ((iz + 1) * (grid_x + 1));
-            let c = (ix + 1) + ((iz + 1) * (grid_x + 1));
-            let d = (ix + 1) + (iz * (grid_x + 1));
+            let a = (iy * (grid_x + 1) + ix) as u32;
+            let b = (iy * (grid_x + 1) + ix + 1) as u32;
+            let c = ((iy + 1) * (grid_x + 1) + ix + 1) as u32;
+            let d = ((iy + 1) * (grid_x + 1) + ix) as u32;
             
-            // First triangle
-            indices.push(a as u32);
-            indices.push(b as u32);
-            indices.push(d as u32);
+            // Two triangles per grid cell
+            indices.push(a);
+            indices.push(b);
+            indices.push(d);
             
-            // Second triangle
-            indices.push(b as u32);
-            indices.push(c as u32);
-            indices.push(d as u32);
+            indices.push(b);
+            indices.push(c);
+            indices.push(d);
         }
     }
 
