@@ -1,15 +1,5 @@
-// Export main modules
-mod mesh;
-pub mod wave;
-mod export;
+// Re-export the tessendorf module
+pub mod tessendorf;
 
-// Re-export everything for public use
-pub use mesh::{Mesh, Vertex, Face};
-pub use wave::WaveParams;
-pub use export::{export_mesh, export_mesh_tiled, ExportFormat};
-
-pub mod prelude {
-    pub use crate::mesh::{Mesh, Vertex, Face};
-    pub use crate::wave::WaveParams;
-    pub use crate::export::{export_mesh, export_mesh_tiled, ExportFormat};
-}
+// This is a library crate that provides Tessendorf ocean surface generation
+// functionality. It can be used as a library or via the CLI tool.
