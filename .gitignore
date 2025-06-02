@@ -3,3 +3,4 @@
 *.glb
 *stl
 Cargo.lock
+*.gif
