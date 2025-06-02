@@ -12,7 +12,7 @@ from matplotlib import cm
 from PIL import Image
 
 def run_ocean_generator(time_val, output_path, width=20, length=20, width_segments=128, 
-                       length_segments=128, amplitude=1.5, choppiness=0.5, wind_speed=5.0):
+                       length_segments=128, amplitude=1.5, choppiness=0.5, wind_speed=5.0, tiles=3):
     """Run the Rust ocean generator with the specified parameters"""
     cmd = [
         "./target/debug/ocean-generator",
@@ -24,6 +24,7 @@ def run_ocean_generator(time_val, output_path, width=20, length=20, width_segmen
         "-a", str(amplitude),
         "-c", str(choppiness),
         "-t", str(time_val),
+        "-g", str(tiles),
         "-o", output_path
     ]
     
@@ -122,7 +123,8 @@ def render_glb_to_image(glb_path, output_image_path, width=800, height=600, dpi=
     
     return output_image_path
 
-def create_ocean_animation(num_frames=100, time_step=0.1, output_gif="ocean_animation.gif", duration=0.1):
+def create_ocean_animation(num_frames=100, time_step=0.1, output_gif="ocean_animation.gif", duration=0.1, 
+                      width=20, length=20, amplitude=1.5, choppiness=0.5, wind_speed=5.0, tiles=3):
     """Create an animation of ocean waves over time"""
     # Make sure the Rust program is built
     subprocess.run(["cargo", "build"], check=True)

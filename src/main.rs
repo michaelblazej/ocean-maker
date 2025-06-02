@@ -202,9 +202,99 @@ fn create_mesh(
         }
     }
 
-    // Log the min/max height values
-    println!("Ocean height range: min = {:.4} units, max = {:.4} units, amplitude = {:.4} units", 
-             min_height, max_height, (max_height - min_height) / 2.0);
+    // Enforce periodic boundary conditions to ensure tileable mesh
+    // Make opposite edges have identical heights
+    for i in 0..=length_segments {
+        // Make left and right edges identical
+        let left_idx = i * (width_segments + 1);
+        let right_idx = left_idx + width_segments;
+        
+        // Choose the average height of left and right edges
+        let avg_height = (positions[left_idx].z + positions[right_idx].z) / 2.0;
+        positions[left_idx].z = avg_height;
+        positions[right_idx].z = avg_height;
+        
+        // Also adjust normals to be vertical at edges for better tiling
+        normals[left_idx] = mesh_tools::compat::vector3::new(0.0, 0.0, 1.0);
+        normals[right_idx] = mesh_tools::compat::vector3::new(0.0, 0.0, 1.0);
+    }
+    
+    for j in 0..=width_segments {
+        // Make bottom and top edges identical
+        let bottom_idx = j;
+        let top_idx = length_segments * (width_segments + 1) + j;
+        
+        // Choose the average height of bottom and top edges
+        let avg_height = (positions[bottom_idx].z + positions[top_idx].z) / 2.0;
+        positions[bottom_idx].z = avg_height;
+        positions[top_idx].z = avg_height;
+        
+        // Also adjust normals to be vertical at edges for better tiling
+        normals[bottom_idx] = mesh_tools::compat::vector3::new(0.0, 0.0, 1.0);
+        normals[top_idx] = mesh_tools::compat::vector3::new(0.0, 0.0, 1.0);
+    }
+    
+    // Create arrays to store edge heights for consistency checking
+    let mut left_edge = Vec::with_capacity(length_segments + 1);
+    let mut right_edge = Vec::with_capacity(length_segments + 1);
+    let mut bottom_edge = Vec::with_capacity(width_segments + 1);
+    let mut top_edge = Vec::with_capacity(width_segments + 1);
+    
+    // Extract heights at the edges
+    for i in 0..=length_segments {
+        // Left edge (x = -width/2)
+        let left_idx = i * (width_segments + 1);
+        left_edge.push(positions[left_idx].z);
+        
+        // Right edge (x = width/2)
+        let right_idx = left_idx + width_segments;
+        right_edge.push(positions[right_idx].z);
+    }
+    
+    for i in 0..=width_segments {
+        // Bottom edge (y = -length/2)
+        let bottom_idx = i;
+        bottom_edge.push(positions[bottom_idx].z);
+        
+        // Top edge (y = length/2)
+        let top_idx = length_segments * (width_segments + 1) + i;
+        top_edge.push(positions[top_idx].z);
+    }
+    
+    // Check if opposite edges are consistent within tolerance
+    let tolerance = 0.001;
+    let mut max_left_right_diff: f32 = 0.0;
+    let mut max_top_bottom_diff: f32 = 0.0;
+    
+    for i in 0..left_edge.len() {
+        let diff = (left_edge[i] - right_edge[i]).abs();
+        max_left_right_diff = max_left_right_diff.max(diff);
+    }
+    
+    for i in 0..bottom_edge.len() {
+        let diff = (bottom_edge[i] - top_edge[i]).abs();
+        max_top_bottom_diff = max_top_bottom_diff.max(diff);
+    }
+    
+    println!("Edge consistency check:");
+    println!("  Left-Right edges max difference: {:.6} units", max_left_right_diff);
+    println!("  Bottom-Top edges max difference: {:.6} units", max_top_bottom_diff);
+    
+    if max_left_right_diff <= tolerance && max_top_bottom_diff <= tolerance {
+        println!("  ✓ Mesh is consistent across tiles (within tolerance of {:.6})", tolerance);
+    } else {
+        println!("  ✗ Mesh is NOT consistent across tiles (exceeds tolerance of {:.6})", tolerance);
+        println!("    This may cause visible seams when tiling the mesh");
+        
+        // Print some sample points for debugging
+        println!("  Sample edge points (height values):");
+        println!("    Left edge [0]: {:.6}, Right edge [0]: {:.6}", left_edge[0], right_edge[0]);
+        println!("    Left edge [mid]: {:.6}, Right edge [mid]: {:.6}", 
+                 left_edge[left_edge.len()/2], right_edge[right_edge.len()/2]);
+        println!("    Bottom edge [0]: {:.6}, Top edge [0]: {:.6}", bottom_edge[0], top_edge[0]);
+        println!("    Bottom edge [mid]: {:.6}, Top edge [mid]: {:.6}", 
+                 bottom_edge[bottom_edge.len()/2], top_edge[top_edge.len()/2]);
+    }
 
     // Return the mesh data
     (positions, indices, normals, uvs)
@@ -224,12 +314,11 @@ fn export_mesh(
     // Create a new GLTF builder
     let mut builder = GltfBuilder::new();
     
-    // Create materials with different blue shades for better visualization
-    let ocean_materials = [
-        builder.create_basic_material(Some("OceanMaterial1".to_string()), [0.0, 0.3, 0.8, 1.0]),  // Standard blue
-        builder.create_basic_material(Some("OceanMaterial2".to_string()), [0.0, 0.4, 0.9, 1.0]),  // Lighter blue
-        builder.create_basic_material(Some("OceanMaterial3".to_string()), [0.0, 0.2, 0.7, 1.0]),  // Darker blue
-    ];
+    // Create a single blue material for the ocean
+    let ocean_material = builder.create_basic_material(
+        Some("OceanMaterial".to_string()),
+        [0.0, 0.3, 0.8, 1.0]  // Standard blue
+    );
     
     // Convert indices to triangles
     let mut triangles = Vec::with_capacity(indices.len() / 3);
@@ -250,7 +339,7 @@ fn export_mesh(
         &triangles,
         Some(normals.to_vec()),
         Some(uvs.to_vec()),
-        Some(ocean_materials[0]) // First material for the central tile
+        Some(ocean_material) // Single material for all tiles
     );
     
     // Find the size of the mesh for proper tiling
@@ -288,15 +377,6 @@ fn export_mesh(
             // Determine if this is the center tile
             let is_center = (tiles % 2 == 1) && (row == 0 && col == 0);
             
-            // Vary the material based on position for visual distinction
-            let material_index = if is_center {
-                0 // Center tile uses standard blue
-            } else if (row + col) % 2 == 0 {
-                1 // Light blue for some tiles
-            } else {
-                2 // Dark blue for others
-            };
-            
             // For center tile, use the mesh we already created
             if is_center {
                 let node_index = builder.add_node(
@@ -308,14 +388,14 @@ fn export_mesh(
                 );
                 node_indices.push(node_index);
             } else {
-                // For other tiles, create a new mesh with the appropriate material
+                // For other tiles, create a new mesh with the same material
                 let tile_mesh_index = builder.create_simple_mesh(
                     Some(format!("OceanSurface_{}_{}", row, col)),
                     positions,
                     &triangles,
                     Some(normals.to_vec()),
                     Some(uvs.to_vec()),
-                    Some(ocean_materials[material_index])
+                    Some(ocean_material)
                 );
                 
                 // Create a translation vector [x, y, z]
