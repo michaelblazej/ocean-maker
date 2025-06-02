@@ -205,7 +205,7 @@ fn create_mesh(
     (positions, indices, normals, uvs)
 }
 
-/// Export the mesh to a GLB file
+/// Export the mesh to a GLB file with a 3x3 tile pattern in the xy-plane
 fn export_mesh(
     positions: &[Point3<f32>],
     indices: &[u32],
@@ -218,11 +218,12 @@ fn export_mesh(
     // Create a new GLTF builder
     let mut builder = GltfBuilder::new();
     
-    // Create a blue material for the ocean
-    let ocean_material = builder.create_basic_material(
-        Some("OceanMaterial".to_string()),
-        [0.0, 0.3, 0.8, 1.0], // Blue color
-    );
+    // Create materials with different blue shades for better visualization
+    let ocean_materials = [
+        builder.create_basic_material(Some("OceanMaterial1".to_string()), [0.0, 0.3, 0.8, 1.0]),  // Standard blue
+        builder.create_basic_material(Some("OceanMaterial2".to_string()), [0.0, 0.4, 0.9, 1.0]),  // Lighter blue
+        builder.create_basic_material(Some("OceanMaterial3".to_string()), [0.0, 0.2, 0.7, 1.0]),  // Darker blue
+    ];
     
     // Convert indices to triangles
     let mut triangles = Vec::with_capacity(indices.len() / 3);
@@ -236,31 +237,94 @@ fn export_mesh(
         }
     }
     
-    // Create the mesh using the public API
+    // Create the mesh using the public API - we'll reuse this mesh for all tiles
     let mesh_index = builder.create_simple_mesh(
         Some("OceanSurface".to_string()),
         positions,
         &triangles,
         Some(normals.to_vec()),
         Some(uvs.to_vec()),
-        Some(ocean_material)
+        Some(ocean_materials[0]) // First material for the central tile
     );
     
-    // Create a node with our mesh
-    let node_index = builder.add_node(
-        None, 
-        Some(mesh_index),
-        None,
-        None, 
-        None
-    );
+    // Find the size of the mesh for proper tiling
+    let mut min_x = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut min_y = f32::MAX;
+    let mut max_y = f32::MIN;
     
-    // Add a scene with our node
-    builder.add_scene(Some("Ocean Scene".to_string()), Some(vec![node_index]));
+    for pos in positions {
+        min_x = min_x.min(pos.x);
+        max_x = max_x.max(pos.x);
+        min_y = min_y.min(pos.y);
+        max_y = max_y.max(pos.y);
+    }
+    
+    let width = max_x - min_x;
+    let height = max_y - min_y;
+    
+    println!("Ocean tile dimensions: width={:.2}, height={:.2}", width, height);
+    
+    // Create a 3x3 grid of nodes using the same mesh but with different transforms
+    let mut node_indices = Vec::new();
+    
+    for row in -1..=1 {
+        for col in -1..=1 {
+            // Create a transform matrix to position each tile
+            let translate_x = col as f32 * width;
+            let translate_y = row as f32 * height;
+            
+            // Vary the material based on position for visual distinction
+            let material_index = if row == 0 && col == 0 {
+                0 // Center tile uses standard blue
+            } else if (row + col) % 2 == 0 {
+                1 // Light blue for some tiles
+            } else {
+                2 // Dark blue for others
+            };
+            
+            // For center tile, use the mesh we already created
+            if row == 0 && col == 0 {
+                let node_index = builder.add_node(
+                    Some(format!("OceanTile_{}_{}", row, col)),
+                    Some(mesh_index),
+                    None, // No transform for center tile
+                    None, 
+                    None
+                );
+                node_indices.push(node_index);
+            } else {
+                // For other tiles, create a new mesh with the appropriate material
+                let tile_mesh_index = builder.create_simple_mesh(
+                    Some(format!("OceanSurface_{}_{}", row, col)),
+                    positions,
+                    &triangles,
+                    Some(normals.to_vec()),
+                    Some(uvs.to_vec()),
+                    Some(ocean_materials[material_index])
+                );
+                
+                // Create a translation vector [x, y, z]
+                let translation = [translate_x, translate_y, 0.0];
+                
+                let node_index = builder.add_node(
+                    Some(format!("OceanTile_{}_{}", row, col)),
+                    Some(tile_mesh_index),
+                    Some(translation),
+                    None, 
+                    None
+                );
+                node_indices.push(node_index);
+            }
+        }
+    }
+    
+    // Add a scene with all our ocean tile nodes
+    builder.add_scene(Some("Ocean Tiles Scene".to_string()), Some(node_indices));
     
     // Export to GLB
     builder.export_glb(output_path.to_str().unwrap())?;
     
-    println!("Mesh exported to: {}", output_path.display());
+    println!("Mesh exported to: {} (3x3 tiled pattern)", output_path.display());
     Ok(())
 }
