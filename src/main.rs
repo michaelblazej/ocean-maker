@@ -58,6 +58,10 @@ struct Args {
     /// Output file path
     #[arg(short, long, default_value = "ocean_surface.glb")]
     output: PathBuf,
+
+    /// Number of tiles in each direction (creates NxN grid)
+    #[arg(short = 'g', long, default_value_t = 1)]
+    tiles: usize,
 }
 
 fn main() -> Result<()> {
@@ -99,7 +103,8 @@ fn main() -> Result<()> {
 
     // Export the mesh
     println!("Exporting to {}...", args.output.display());
-    export_mesh(&positions, &indices, &normals, &uvs, &args.output)?;
+    println!("Creating {}x{} tiled pattern...", args.tiles, args.tiles);
+    export_mesh(&positions, &indices, &normals, &uvs, &args.output, args.tiles)?;
 
     println!("Done!");
     Ok(())
@@ -205,13 +210,14 @@ fn create_mesh(
     (positions, indices, normals, uvs)
 }
 
-/// Export the mesh to a GLB file with a 3x3 tile pattern in the xy-plane
+/// Export the mesh to a GLB file with an NxN tile pattern in the xy-plane
 fn export_mesh(
     positions: &[Point3<f32>],
     indices: &[u32],
     normals: &[Vector3<f32>],
     uvs: &[Vector2<f32>],
     output_path: &PathBuf,
+    tiles: usize,
 ) -> Result<()> {
     use mesh_tools::{GltfBuilder, Triangle};
     
@@ -265,17 +271,25 @@ fn export_mesh(
     
     println!("Ocean tile dimensions: width={:.2}, height={:.2}", width, height);
     
-    // Create a 3x3 grid of nodes using the same mesh but with different transforms
+    // Create an NxN grid of nodes using the same mesh but with different transforms
     let mut node_indices = Vec::new();
     
-    for row in -1..=1 {
-        for col in -1..=1 {
+    // Calculate tile placement ranges based on tiles parameter
+    let half_tiles = tiles as isize / 2;
+    let start = if tiles % 2 == 0 { -half_tiles } else { -half_tiles };
+    let end = if tiles % 2 == 0 { half_tiles - 1 } else { half_tiles };
+    
+    for row in start..=end {
+        for col in start..=end {
             // Create a transform matrix to position each tile
             let translate_x = col as f32 * width;
             let translate_y = row as f32 * height;
             
+            // Determine if this is the center tile
+            let is_center = (tiles % 2 == 1) && (row == 0 && col == 0);
+            
             // Vary the material based on position for visual distinction
-            let material_index = if row == 0 && col == 0 {
+            let material_index = if is_center {
                 0 // Center tile uses standard blue
             } else if (row + col) % 2 == 0 {
                 1 // Light blue for some tiles
@@ -284,7 +298,7 @@ fn export_mesh(
             };
             
             // For center tile, use the mesh we already created
-            if row == 0 && col == 0 {
+            if is_center {
                 let node_index = builder.add_node(
                     Some(format!("OceanTile_{}_{}", row, col)),
                     Some(mesh_index),
@@ -325,6 +339,6 @@ fn export_mesh(
     // Export to GLB
     builder.export_glb(output_path.to_str().unwrap())?;
     
-    println!("Mesh exported to: {} (3x3 tiled pattern)", output_path.display());
+    println!("Mesh exported to: {} ({}x{} tiled pattern)", output_path.display(), tiles, tiles);
     Ok(())
 }
