@@ -77,6 +77,7 @@ fn main() {
     let mut file = std::fs::File::create("ocean.obj").unwrap();
     export_mesh(&mesh, format, &mut file).unwrap();
 }
+```
 
 ### As a CLI Tool
 
