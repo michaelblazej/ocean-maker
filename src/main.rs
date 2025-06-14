@@ -32,11 +32,11 @@ struct Args {
     wind_speed: f32,
 
     /// Wind direction X component
-    #[arg(long, default_value_t = 1.0)]
+    #[arg(long, default_value_t = 1.0, allow_negative_numbers = true)]
     wind_dir_x: f32,
 
     /// Wind direction Y component
-    #[arg(long, default_value_t = 0.0)]
+    #[arg(long, default_value_t = 0.0, allow_negative_numbers = true)]
     wind_dir_y: f32,
 
     /// Wave amplitude
